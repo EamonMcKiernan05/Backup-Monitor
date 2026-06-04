@@ -17,9 +17,26 @@ class BackupStatus(str, Enum):
     PENDING = "pending"
     UNKNOWN = "unknown"
 
+    def __str__(self):
+        return self.value
+
+
+class VmLxcBackupStatus(BaseModel):
+    """Backup status for a single VM or LXC container."""
+
+    vmid: int
+    name: str
+    vm_type: str = Field(description="qemu or lxc")
+    status: BackupStatus = BackupStatus.UNKNOWN
+    last_run: Optional[float] = None
+    last_duration: Optional[float] = None
+    time_since_last: Optional[str] = None
+    error: Optional[str] = None
+    status_raw: Optional[str] = None
+
 
 class BackupInfo(BaseModel):
-    """Information about a single backup job."""
+    """Information about a single backup job (TrueNAS replication/snapshots etc)."""
 
     name: str = Field(description="Backup job name")
     source: str = Field(description="Source server name")
@@ -75,11 +92,28 @@ class BackupInfo(BaseModel):
     )
     extra: dict = Field(default_factory=dict)
 
-    model_config = {"json_encoders": {BackupStatus: lambda v: v.value}}
+
+class ProxmoxNodeStatus(BaseModel):
+    """Status of a Proxmox node with its VMs and LXCs."""
+
+    name: str
+    host: str
+    connected: bool = False
+    connection_error: Optional[str] = None
+    vm_count: int = 0
+    lxc_count: int = 0
+    vm_status: dict = Field(
+        default_factory=dict,
+        description="Per-VM backup status: {vmid: VmLxcBackupStatus}",
+    )
+    lxc_status: dict = Field(
+        default_factory=dict,
+        description="Per-LXC backup status: {vmid: VmLxcBackupStatus}",
+    )
 
 
 class ServerStatus(BaseModel):
-    """Status of a monitored server."""
+    """Status of a non-Proxmox server (TrueNAS, etc)."""
 
     name: str
     host: str
@@ -94,14 +128,24 @@ class DashboardState(BaseModel):
         default_factory=time.time,
         description="Unix timestamp when this data was collected",
     )
+    proxmox_nodes: list[ProxmoxNodeStatus] = Field(default_factory=list)
     servers: list[ServerStatus] = Field(default_factory=list)
     backups: list[BackupInfo] = Field(default_factory=list)
 
     @property
     def summary(self) -> dict:
+        # Count all backups + per-VM/LXC backup statuses
         total = len(self.backups)
-        statuses = {}
+        statuses: dict[str, int] = {}
         for b in self.backups:
-            s = b.status.value
+            s = b.status
             statuses[s] = statuses.get(s, 0) + 1
+
+        # Add per-VM/LXC statuses
+        for node in self.proxmox_nodes:
+            for guest_status in {**node.vm_status, **node.lxc_status}.values():
+                gs = guest_status.status
+                statuses[gs] = statuses.get(gs, 0) + 1
+                total += 1
+
         return {"total": total, **statuses}

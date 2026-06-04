@@ -16,7 +16,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .collectors import ProxmoxCollector, TrueNasCollector
-from .models import BackupInfo, BackupStatus, DashboardState, ServerStatus
+from .models import (
+    BackupInfo,
+    DashboardState,
+    ProxmoxNodeStatus,
+    ServerStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +35,6 @@ def load_config() -> dict:
     with open(config_path) as f:
         content = f.read()
 
-    # Simple env var substitution: ${VAR:-default} -> value or default
     import re
 
     def _replace(match):
@@ -49,7 +53,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Backup Monitor",
         description="Homelab backup monitoring dashboard",
-        version="0.1.0",
+        version="0.2.0",
     )
 
     app.add_middleware(
@@ -74,15 +78,14 @@ def create_app() -> FastAPI:
         password=os.environ.get("PROXMOX_PASSWORD", ""),
         api_port=proxmox_cfg.get("api_port", 8006),
         verify_ssl=proxmox_cfg.get("verify_ssl", False),
+        entry_point=proxmox_cfg.get("entry_point", ""),
     )
 
     # Add passwords to TrueNAS server configs
-    # Password keys: TRUENAS_<NAME>_PASSWORD where NAME is from config
     for srv in truenas_cfg.get("servers", []):
         name = srv.get("name", "MAIN").replace(" ", "_").upper()
         password_key = f"TRUENAS_{name}_PASSWORD"
         srv["password"] = os.environ.get(password_key) or srv.get("password", "")
-        logger.debug("TrueNAS %s: password_key=%s, len=%d", srv["name"], password_key, len(srv["password"]))
 
     truenas_collector = TrueNasCollector(
         servers=truenas_cfg.get("servers", []),
@@ -109,31 +112,27 @@ def create_app() -> FastAPI:
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
+        all_nodes: list[ProxmoxNodeStatus] = []
         all_servers: list[ServerStatus] = []
         all_backups: list[BackupInfo] = []
-        seen_proxmox_upids: set[str] = set()
-        seen_hosts: set[str] = set()
 
         for result in results:
             if isinstance(result, Exception):
                 logger.error("Collector error: %s", result)
                 continue
-            servers, backups = result
-            for s in servers:
-                if s.host not in seen_hosts:
-                    seen_hosts.add(s.host)
-                    all_servers.append(s)
-            for b in backups:
-                # Deduplicate Proxmox backups by UPID
-                if b.backup_type == "vzdump":
-                    upid = b.extra.get("upid", "")
-                    if upid in seen_proxmox_upids:
-                        continue
-                    seen_proxmox_upids.add(upid)
-                all_backups.append(b)
+
+            # Proxmox returns list[ProxmoxNodeStatus]
+            # TrueNAS returns tuple[list[ServerStatus], list[BackupInfo]]
+            if isinstance(result, list) and result and isinstance(result[0], ProxmoxNodeStatus):
+                all_nodes.extend(result)
+            elif isinstance(result, tuple) and len(result) == 2:
+                servers, backups = result
+                all_servers.extend(servers)
+                all_backups.extend(backups)
 
         state = DashboardState(
             updated_at=time.time(),
+            proxmox_nodes=all_nodes,
             servers=all_servers,
             backups=all_backups,
         )

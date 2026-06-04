@@ -6,12 +6,13 @@ dashboard:
 
 proxmox:
   nodes:
-    - host: ${PROXMOX_NODE_1|192.168.1.7}
+    - host: proxmox-1
       name: "Proxmox 7"
-    - host: ${PROXMOX_NODE_2|192.168.1.8}
+    - host: proxmox-2
       name: "Proxmox 8"
-    - host: ${PROXMOX_NODE_3|192.168.1.9}
+    - host: proxmox-3
       name: "Proxmox 9"
+  entry_point: ${PROXMOX_ENTRY|192.168.1.7}
   user: ${PROXMOX_USER|root@pam}
   api_port: 8006
   verify_ssl: false
