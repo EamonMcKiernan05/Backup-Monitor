@@ -382,43 +382,6 @@
     border-bottom: 1px solid var(--border);
   }
 
-  /* Uptime Monitor */
-  .uptime-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 12px;
-    margin-bottom: 32px;
-  }
-
-  .uptime-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    transition: border-color 0.2s;
-  }
-
-  .uptime-card:hover { border-color: #444; }
-
-  .uptime-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-
-  .uptime-dot.up { background: var(--success); box-shadow: 0 0 8px var(--success); }
-  .uptime-dot.down { background: var(--error); box-shadow: 0 0 8px var(--error); }
-  .uptime-dot.unknown { background: var(--text-dim); }
-
-  .uptime-info { flex: 1; }
-  .uptime-name { font-weight: 500; font-size: 0.9rem; }
-  .uptime-ip { font-size: 0.8rem; color: var(--text-dim); }
-  .uptime-latency { font-size: 0.75rem; color: var(--success); }
-  .uptime-latency.down { color: var(--error); }
 
   @media (max-width: 768px) {
     .guest-row {
@@ -431,7 +394,6 @@
     .guest-row-header > :nth-child(6) { display: none; }
     .backup-grid { grid-template-columns: 1fr; }
     .summary-bar { grid-template-columns: repeat(3, 1fr); }
-    .uptime-grid { grid-template-columns: 1fr 1fr; }
     body { padding: 16px; }
   }
 </style>
@@ -490,28 +452,6 @@ function render() {
   if (summary.pending > 0) html += summaryCard(summary.pending, 'Pending', 'pending');
   html += `</div>`;
 
-  // Uptime Monitor
-  if (health && health.length > 0) {
-    const up = health.filter(h => h.status === 'up').length;
-    const down = health.filter(h => h.status === 'down').length;
-    html += `<div class="section-title">Uptime Monitor — ${up} up${down ? ', ' + down + ' down' : ''}</div>`;
-    html += `<div class="uptime-grid">`;
-    for (const host of health) {
-      const dotClass = host.status === 'up' ? 'up' : host.status === 'down' ? 'down' : 'unknown';
-      const latencyText = host.latency_ms !== null ? `${host.latency_ms.toFixed(1)}ms` : '';
-      html += `
-        <div class="uptime-card">
-          <div class="uptime-dot ${dotClass}"></div>
-          <div class="uptime-info">
-            <div class="uptime-name">${esc(host.name)}</div>
-            <div class="uptime-ip">${esc(host.ip)}</div>
-            ${latencyText ? `<div class="uptime-latency ${dotClass}">${latencyText}</div>` : ''}
-          </div>
-        </div>
-      `;
-    }
-    html += `</div>`;
-  }
 
   // Proxmox hosts with VMs/LXCs
   if (proxmox_nodes && proxmox_nodes.length > 0) {

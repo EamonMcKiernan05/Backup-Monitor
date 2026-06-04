@@ -15,11 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .collectors import ProxmoxCollector, TrueNasCollector, UptimeCollector
+from .collectors import ProxmoxCollector, TrueNasCollector
 from .models import (
     BackupInfo,
     DashboardState,
-    HostHealth,
     ProxmoxNodeStatus,
     ServerStatus,
 )
@@ -72,7 +71,6 @@ def create_app() -> FastAPI:
     # Initialize collectors
     proxmox_cfg = config.get("proxmox", {})
     truenas_cfg = config.get("truenas", {})
-    health_cfg = config.get("health", {})
 
     proxmox_collector = ProxmoxCollector(
         nodes=proxmox_cfg.get("nodes", []),
@@ -84,8 +82,6 @@ def create_app() -> FastAPI:
     )
 
     # Add passwords to TrueNAS server configs
-    # Use host field as the key: host="truenas-main" → TRUENAS_MAIN_PASSWORD
-    # Strip "truenas-" prefix to avoid double TRUENAS_TRUENAS_MAIN_PASSWORD
     for srv in truenas_cfg.get("servers", []):
         key = srv.get("host", "MAIN").replace("-", "_").upper()
         key = key.removeprefix("TRUENAS_")
@@ -98,14 +94,6 @@ def create_app() -> FastAPI:
         api_port=truenas_cfg.get("api_port", 443),
         verify_ssl=truenas_cfg.get("verify_ssl", False),
     )
-
-    # Build uptime targets from all configured hosts
-    uptime_targets = UptimeCollector.build_targets(
-        proxmox_nodes=proxmox_cfg.get("nodes", []),
-        servers=truenas_cfg.get("servers", []),
-        extra_hosts=health_cfg.get("hosts", []),
-    )
-    uptime_collector = UptimeCollector(targets=uptime_targets)
 
     refresh_interval = config.get("dashboard", {}).get("refresh_interval", 60)
 
@@ -123,27 +111,20 @@ def create_app() -> FastAPI:
         tasks = [
             proxmox_collector.collect(),
             truenas_collector.collect(),
-            uptime_collector.collect(),
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_nodes: list[ProxmoxNodeStatus] = []
         all_servers: list[ServerStatus] = []
         all_backups: list[BackupInfo] = []
-        all_health: list[HostHealth] = []
 
         for result in results:
             if isinstance(result, Exception):
                 logger.error("Collector error: %s", result)
                 continue
 
-            # Proxmox returns list[ProxmoxNodeStatus]
-            # TrueNAS returns tuple[list[ServerStatus], list[BackupInfo]]
-            # Uptime returns list[HostHealth]
             if isinstance(result, list) and result and isinstance(result[0], ProxmoxNodeStatus):
                 all_nodes.extend(result)
-            elif isinstance(result, list) and result and isinstance(result[0], HostHealth):
-                all_health.extend(result)
             elif isinstance(result, tuple) and len(result) == 2:
                 servers, backups = result
                 all_servers.extend(servers)
@@ -154,7 +135,6 @@ def create_app() -> FastAPI:
             proxmox_nodes=all_nodes,
             servers=all_servers,
             backups=all_backups,
-            health=all_health,
         )
 
         cached_state = state

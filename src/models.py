@@ -21,12 +21,6 @@ class BackupStatus(str, Enum):
         return self.value
 
 
-class HealthStatus(str, Enum):
-    UP = "up"
-    DOWN = "down"
-    UNKNOWN = "unknown"
-
-
 class VmLxcBackupStatus(BaseModel):
     """Backup status for a single VM or LXC container."""
 
@@ -100,16 +94,6 @@ class BackupInfo(BaseModel):
     extra: dict = Field(default_factory=dict)
 
 
-class HostHealth(BaseModel):
-    """Ping-based health check for a host."""
-
-    name: str
-    ip: str
-    status: HealthStatus = HealthStatus.UNKNOWN
-    latency_ms: Optional[float] = None
-    last_check: Optional[float] = None
-
-
 class ProxmoxNodeStatus(BaseModel):
     """Status of a Proxmox node with its VMs and LXCs."""
 
@@ -148,7 +132,6 @@ class DashboardState(BaseModel):
     proxmox_nodes: list[ProxmoxNodeStatus] = Field(default_factory=list)
     servers: list[ServerStatus] = Field(default_factory=list)
     backups: list[BackupInfo] = Field(default_factory=list)
-    health: list[HostHealth] = Field(default_factory=list)
 
     @property
     def summary(self) -> dict:
