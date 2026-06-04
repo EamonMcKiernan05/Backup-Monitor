@@ -382,6 +382,44 @@
     border-bottom: 1px solid var(--border);
   }
 
+  /* Uptime Monitor */
+  .uptime-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+
+  .uptime-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: border-color 0.2s;
+  }
+
+  .uptime-card:hover { border-color: #444; }
+
+  .uptime-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .uptime-dot.up { background: var(--success); box-shadow: 0 0 8px var(--success); }
+  .uptime-dot.down { background: var(--error); box-shadow: 0 0 8px var(--error); }
+  .uptime-dot.unknown { background: var(--text-dim); }
+
+  .uptime-info { flex: 1; }
+  .uptime-name { font-weight: 500; font-size: 0.9rem; }
+  .uptime-ip { font-size: 0.8rem; color: var(--text-dim); }
+  .uptime-latency { font-size: 0.75rem; color: var(--success); }
+  .uptime-latency.down { color: var(--error); }
+
   @media (max-width: 768px) {
     .guest-row {
       grid-template-columns: 36px 1fr 70px 100px;
@@ -393,6 +431,7 @@
     .guest-row-header > :nth-child(6) { display: none; }
     .backup-grid { grid-template-columns: 1fr; }
     .summary-bar { grid-template-columns: repeat(3, 1fr); }
+    .uptime-grid { grid-template-columns: 1fr 1fr; }
     body { padding: 16px; }
   }
 </style>
@@ -426,7 +465,7 @@ async function fetchData() {
 function render() {
   if (!dashboardData) return;
 
-  const { proxmox_nodes, servers, backups, updated_at } = dashboardData;
+  const { proxmox_nodes, servers, backups, health, updated_at } = dashboardData;
   const summary = computeSummary();
   const updatedTime = new Date(updated_at * 1000).toLocaleTimeString();
 
@@ -450,6 +489,29 @@ function render() {
   if (summary.failed > 0) html += summaryCard(summary.failed, 'Failed', 'failed');
   if (summary.pending > 0) html += summaryCard(summary.pending, 'Pending', 'pending');
   html += `</div>`;
+
+  // Uptime Monitor
+  if (health && health.length > 0) {
+    const up = health.filter(h => h.status === 'up').length;
+    const down = health.filter(h => h.status === 'down').length;
+    html += `<div class="section-title">Uptime Monitor — ${up} up${down ? ', ' + down + ' down' : ''}</div>`;
+    html += `<div class="uptime-grid">`;
+    for (const host of health) {
+      const dotClass = host.status === 'up' ? 'up' : host.status === 'down' ? 'down' : 'unknown';
+      const latencyText = host.latency_ms !== null ? `${host.latency_ms.toFixed(1)}ms` : '';
+      html += `
+        <div class="uptime-card">
+          <div class="uptime-dot ${dotClass}"></div>
+          <div class="uptime-info">
+            <div class="uptime-name">${esc(host.name)}</div>
+            <div class="uptime-ip">${esc(host.ip)}</div>
+            ${latencyText ? `<div class="uptime-latency ${dotClass}">${latencyText}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+    html += `</div>`;
+  }
 
   // Proxmox hosts with VMs/LXCs
   if (proxmox_nodes && proxmox_nodes.length > 0) {
@@ -498,23 +560,15 @@ function computeSummary() {
   const summary = { total: 0 };
   if (!dashboardData) return summary;
 
-  // Count external backups
   for (const b of (dashboardData.backups || [])) {
-    summary[b.status] = (summary[b.status] || 0) + 1;
     summary.total++;
+    summary[b.status] = (summary[b.status] || 0) + 1;
   }
 
-  // Count per-VM/LXC statuses
   for (const node of (dashboardData.proxmox_nodes || [])) {
-    for (const vmid in node.vm_status) {
-      const s = node.vm_status[vmid].status;
-      summary[s] = (summary[s] || 0) + 1;
+    for (const guest of { ...node.vm_status, ...node.lxc_status }.values()) {
       summary.total++;
-    }
-    for (const vmid in node.lxc_status) {
-      const s = node.lxc_status[vmid].status;
-      summary[s] = (summary[s] || 0) + 1;
-      summary.total++;
+      summary[guest.status] = (summary[guest.status] || 0) + 1;
     }
   }
 
@@ -527,63 +581,43 @@ function summaryCard(count, label, cls) {
 
 function renderHostCard(node) {
   const dotClass = node.connected ? 'online' : 'offline';
-  const allGuests = { ...node.vm_status, ...node.lxc_status };
-  const guestCount = Object.keys(allGuests).length;
-  const failedCount = Object.values(allGuests).filter(g => g.status === 'failed').length;
-  const runningCount = Object.values(allGuests).filter(g => g.status === 'running').length;
+  const vmCount = Object.keys(node.vm_status || {}).length;
+  const lxcCount = Object.keys(node.lxc_status || {}).length;
+  const id = 'host-' + node.name.replace(/\s+/g, '-');
 
-  let html = `<div class="host-card">`;
-
-  // Host header — use node name for unique ID (not IP, since all nodes share entry point)
-  const hostId = 'host-' + node.name.toLowerCase().replace(/\s+/g, '-');
-  html += `
-    <div class="host-header" onclick="toggleHost('${hostId}')">
-      <div class="host-left">
-        <div class="host-dot ${dotClass}"></div>
-        <div>
-          <div class="host-name">${esc(node.name)}</div>
-          <div class="host-host">${esc(node.host)}</div>
-          ${node.connection_error ? `<div class="host-error">${esc(node.connection_error)}</div>` : ''}
+  let html = `
+    <div class="host-card">
+      <div class="host-header" onclick="toggleGuests('${id}')">
+        <div class="host-left">
+          <div class="host-dot ${dotClass}"></div>
+          <div>
+            <div class="host-name">${esc(node.name)}</div>
+            <div class="host-host">${esc(node.host)}</div>
+            ${node.connection_error ? `<div class="host-error">${esc(node.connection_error)}</div>` : ''}
+          </div>
+        </div>
+        <div class="host-badges">
+          ${vmCount > 0 ? `<span class="host-badge">${vmCount} VM</span>` : ''}
+          ${lxcCount > 0 ? `<span class="host-badge">${lxcCount} LXC</span>` : ''}
+          <span class="host-toggle" id="${id}-toggle">›</span>
         </div>
       </div>
-      <div class="host-badges">
-        ${node.vm_count > 0 ? `<span class="host-badge">VMs: ${node.vm_count}</span>` : ''}
-        ${node.lxc_count > 0 ? `<span class="host-badge">LXC: ${node.lxc_count}</span>` : ''}
-        ${failedCount > 0 ? `<span class="host-badge" style="color:var(--error);">⚠ ${failedCount} failed</span>` : ''}
-        ${runningCount > 0 ? `<span class="host-badge" style="color:var(--running);">▶ ${runningCount} running</span>` : ''}
-        <span class="host-toggle" id="${hostId}-toggle">▶</span>
-      </div>
-    </div>
+      <div class="host-guests" id="${id}-guests">
   `;
 
-  // Guest details
-  html += `<div class="host-guests" id="${hostId}-guests">`;
-
-  if (!node.connected) {
-    html += `<div class="no-data">Cannot load guest details — connection failed</div>`;
-  } else {
-    // VMs
-    const vms = Object.entries(node.vm_status || {}).sort((a, b) => a[0] - b[0]);
-    if (vms.length > 0) {
-      html += `<div class="guest-section-title">Virtual Machines</div>`;
-      html += guestRowHeader();
-      for (const [vmid, status] of vms) {
-        html += guestRow({ vmid: parseInt(vmid), name: status.name, vm_type: 'VM', status: status.status, time_since_last: status.time_since_last, error: status.error, last_duration: status.last_duration });
-      }
+  if (vmCount > 0) {
+    html += `<div class="guest-section-title">Virtual Machines</div>`;
+    html += renderGuestHeader();
+    for (const [vmid, guest] of Object.entries(node.vm_status)) {
+      html += renderGuestRow(guest, vmid);
     }
+  }
 
-    // LXCs
-    const lxcs = Object.entries(node.lxc_status || {}).sort((a, b) => a[0] - b[0]);
-    if (lxcs.length > 0) {
-      html += `<div class="guest-section-title">LXC Containers</div>`;
-      html += guestRowHeader();
-      for (const [vmid, status] of lxcs) {
-        html += guestRow({ vmid: parseInt(vmid), name: status.name, vm_type: 'LXC', status: status.status, time_since_last: status.time_since_last, error: status.error, last_duration: status.last_duration });
-      }
-    }
-
-    if (vms.length === 0 && lxcs.length === 0) {
-      html += `<div class="no-data">No VMs or LXCs on this node</div>`;
+  if (lxcCount > 0) {
+    html += `<div class="guest-section-title">Containers</div>`;
+    html += renderGuestHeader();
+    for (const [vmid, guest] of Object.entries(node.lxc_status)) {
+      html += renderGuestRow(guest, vmid);
     }
   }
 
@@ -591,103 +625,64 @@ function renderHostCard(node) {
   return html;
 }
 
-function guestRowHeader() {
-  return `
-    <div class="guest-row-header">
-      <div>Type</div>
-      <div>Name</div>
-      <div>Status</div>
-      <div>Last Backup</div>
-      <div>Duration</div>
-      <div>Error</div>
-    </div>
-  `;
+function renderGuestHeader() {
+  return `<div class="guest-row-header">
+    <span>Type</span><span>Name</span><span>Backup</span><span>Last Run</span><span>Duration</span><span>Error</span>
+  </div>`;
 }
 
-function guestRow(g) {
-  const statusCls = g.status || 'unknown';
-  return `
-    <div class="guest-row">
-      <div><span class="guest-type">${esc(g.vm_type)}</span></div>
-      <div>
-        <div class="guest-name">${esc(g.name)}</div>
-        <div class="guest-id">ID: ${g.vmid}</div>
-      </div>
-      <div>
-        <span class="status-badge ${statusCls}">
-          <span class="status-dot"></span>
-          ${esc(g.status)}
-        </span>
-      </div>
-      <div class="guest-time">${esc(g.time_since_last || '—')}</div>
-      <div class="guest-time">${formatDuration(g.last_duration)}</div>
-      <div class="guest-error">${g.error ? esc(g.error) : ''}</div>
-    </div>
-  `;
+function renderGuestRow(guest, vmid) {
+  return `<div class="guest-row">
+    <span class="guest-type">${esc(guest.vm_type)}</span>
+    <span class="guest-name">${esc(guest.name)} <span class="guest-id">#${vmid}</span></span>
+    <span><span class="status-badge ${guest.status}"><span class="status-dot"></span>${guest.status}</span></span>
+    <span class="guest-time">${guest.time_since_last || '—'}</span>
+    <span class="guest-time">${formatDuration(guest.last_duration)}</span>
+    <span class="guest-error">${guest.error || ''}</span>
+  </div>`;
 }
 
-function toggleHost(hostId) {
-  const guests = document.getElementById(`${hostId}-guests`);
-  const toggle = document.getElementById(`${hostId}-toggle`);
-  if (guests.classList.contains('open')) {
-    guests.classList.remove('open');
-    toggle.classList.remove('open');
-  } else {
-    guests.classList.add('open');
-    toggle.classList.add('open');
-  }
-}
-
-function renderBackupCard(b) {
-  const statusCls = `status-${b.status}`;
+function renderBackupCard(backup) {
+  const statusClass = backup.status || 'unknown';
   let html = `
-    <div class="backup-card ${statusCls}">
+    <div class="backup-card status-${statusClass}">
       <div class="backup-header">
         <div>
-          <div class="backup-name">${esc(b.name)}</div>
-          <div class="backup-source">${esc(b.source)}</div>
+          <div class="backup-name">${esc(backup.name)}</div>
+          <div class="backup-source">${esc(backup.source)}</div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <span class="backup-type">${esc(b.backup_type)}</span>
-          <span class="status-badge ${b.status}">
-            <span class="status-dot"></span>
-            ${esc(b.status)}
-          </span>
-        </div>
-      </div>
-
-      <div class="backup-details">
-        <div class="detail">
-          <div class="detail-label">Status</div>
-          <div class="detail-value">${esc(b.status_message || '—')}</div>
-        </div>
-        <div class="detail">
-          <div class="detail-label">Last Run</div>
-          <div class="detail-value">${esc(b.time_since_last || '—')}</div>
-        </div>
-        <div class="detail">
-          <div class="detail-label">Duration</div>
-          <div class="detail-value">${formatDuration(b.last_duration)}</div>
-        </div>
-        <div class="detail">
-          <div class="detail-label">Data Transferred</div>
-          <div class="detail-value">${esc(b.data_transferred_human || '—')}</div>
+        <div>
+          <span class="status-badge ${statusClass}"><span class="status-dot"></span>${statusClass}</span>
+          <span class="backup-type">${esc(backup.backup_type)}</span>
         </div>
       </div>
   `;
 
-  if (b.errors && b.errors.length > 0) {
+  if (backup.status_message) {
+    html += `<div style="font-size:0.85rem;color:var(--text-dim);margin-bottom:12px;">${esc(backup.status_message)}</div>`;
+  }
+
+  html += `<div class="backup-details">`;
+  if (backup.time_since_last) html += detailRow('Last Run', backup.time_since_last);
+  if (backup.time_until_next) html += detailRow('Next Run', backup.time_until_next);
+  if (backup.last_duration) html += detailRow('Duration', formatDuration(backup.last_duration));
+  if (backup.data_transferred_human) html += detailRow('Transferred', backup.data_transferred_human);
+  if (backup.total_size_human) html += detailRow('Total Size', backup.total_size_human);
+  if (backup.new_data_human) html += detailRow('New Data', backup.new_data_human);
+  html += `</div>`;
+
+  if (backup.errors && backup.errors.length > 0) {
     html += `<div class="backup-issues">`;
-    for (const err of b.errors) {
-      html += `<div class="issue error">⚠ ${esc(err)}</div>`;
+    for (const err of backup.errors) {
+      html += `<div class="issue error">✕ ${esc(err)}</div>`;
     }
     html += `</div>`;
   }
 
-  if (b.warnings && b.warnings.length > 0) {
+  if (backup.warnings && backup.warnings.length > 0) {
     html += `<div class="backup-issues">`;
-    for (const warn of b.warnings) {
-      html += `<div class="issue warning">⚡ ${esc(warn)}</div>`;
+    for (const warn of backup.warnings) {
+      html += `<div class="issue warning">⚠ ${esc(warn)}</div>`;
     }
     html += `</div>`;
   }
@@ -696,11 +691,15 @@ function renderBackupCard(b) {
   return html;
 }
 
+function detailRow(label, value) {
+  return `<div class="detail"><div class="detail-label">${label}</div><div class="detail-value">${value}</div></div>`;
+}
+
 function formatDuration(seconds) {
-  if (seconds == null) return '—';
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
-  return `${(seconds / 3600).toFixed(1)}h`;
+  if (!seconds || seconds === 0) return '—';
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
 function esc(str) {
@@ -710,20 +709,30 @@ function esc(str) {
   return div.innerHTML;
 }
 
+function toggleGuests(id) {
+  const el = document.getElementById(id + '-guests');
+  const toggle = document.getElementById(id + '-toggle');
+  if (el.classList.contains('open')) {
+    el.classList.remove('open');
+    toggle.classList.remove('open');
+  } else {
+    el.classList.add('open');
+    toggle.classList.add('open');
+  }
+}
+
 function renderError(msg) {
   document.getElementById('app').innerHTML = `
-    <div class="header">
-      <h1>Backup Monitor</h1>
-    </div>
-    <div class="no-data" style="color: var(--error);">
-      Failed to load data: ${esc(msg)}<br>
-      <button class="refresh-btn" onclick="fetchData()" style="margin-top:12px;">↻ Retry</button>
+    <div class="no-data">
+      <div style="color:var(--error);margin-bottom:12px;">Failed to load dashboard</div>
+      <div style="font-size:0.85rem;color:var(--text-dim);">${esc(msg)}</div>
     </div>
   `;
 }
 
+// Start
 fetchData();
-refreshTimer = setInterval(fetchData, REFRESH_INTERVAL);
+setInterval(fetchData, REFRESH_INTERVAL);
 </script>
 </body>
 </html>
