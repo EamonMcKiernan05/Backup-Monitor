@@ -1,9 +1,10 @@
 # Backup Monitor
 
-Homelab backup monitoring dashboard for Proxmox (vzdump) and TrueNAS (replication/snapshots).
+Homelab backup monitoring dashboard with uptime tracking for Proxmox (vzdump), TrueNAS (replication/snapshots), and all homelab hosts.
 
 ## Features
 
+- **Uptime Monitor** — ping-based health checks for all Proxmox nodes, TrueNAS servers, and custom hosts
 - **Proxmox backup monitoring** — vzdump backup jobs, task logs, schedules
 - **TrueNAS backup monitoring** — replication tasks and periodic snapshots
 - **Multi-server support** — monitor multiple Proxmox nodes and TrueNAS servers
@@ -47,53 +48,73 @@ Edit `config.yaml` to configure:
 - SSL verification settings
 - Which backup types to monitor
 
+**Uptime Monitor** — hosts listed in `health.hosts` are pinged in addition to all Proxmox/TrueNAS targets:
+
+```yaml
+health:
+  hosts:
+    - name: "Windows Desktop"
+      ip: "192.168.1.30"
+    - name: "MacBook"
+      ip: "192.168.2.165"
+```
+
 ## API Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/dashboard` | Full dashboard state |
+| `GET /api/dashboard` | Full dashboard state (includes `health` array) |
 | `GET /api/summary` | Quick status summary |
 | `GET /api/health` | Health check |
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌─────────────┐
-│  Proxmox    │     │  TrueNAS    │
-│  Nodes .7-9 │     │  .12 & .108 │
-└──────┬──────┘     └──────┬──────┘
-       │                   │
-       │ REST API          │ REST API
-       ▼                   ▼
-┌────────────────────────────────┐
-│    Backup Monitor (FastAPI)    │
-│  ┌─────────┐  ┌────────────┐  │
-│  │Proxmox  │  │  TrueNAS   │  │
-│  │Collector│  │  Collector │  │
-│  └─────────┘  └────────────┘  │
-│         │              │       │
-│         ▼              ▼       │
-│    ┌─────────────────────┐    │
-│    │   Dashboard API     │    │
-│    └──────────┬──────────┘    │
-│               │               │
-│    ┌──────────▼──────────┐    │
-│    │   Web Dashboard     │    │
-│    └─────────────────────┘    │
-└────────────────────────────────┘
+┌─────────────┐     ┌─────────────┐     ┌──────────────┐
+│  Proxmox    │     │  TrueNAS    │     │  Extra Hosts │
+│  Nodes .7-9 │     │  .12 & .108 │     │  Desktop, etc│
+└──────┬──────┘     └──────┬──────┘     └──────┬───────┘
+       │                   │                    │
+       │ REST API          │ REST API           │ ICMP Ping
+       ▼                   ▼                    ▼
+┌──────────────────────────────────────────────────────┐
+│    Backup Monitor (FastAPI)                           │
+│  ┌─────────┐  ┌────────────┐  ┌────────────────┐    │
+│  │Proxmox  │  │  TrueNAS   │  │   Uptime       │    │
+│  │Collector│  │  Collector │  │   Collector    │    │
+│  └─────────┘  └────────────┘  └────────────────┘    │
+│         │              │              │              │
+│         ▼              ▼              ▼              │
+│    ┌─────────────────────────────────────┐          │
+│    │        Dashboard API                │          │
+│    └───────────────────┬─────────────────┘          │
+│                        │                            │
+│    ┌───────────────────▼──────────────────┐        │
+│    │         Web Dashboard                │        │
+│    └──────────────────────────────────────┘        │
+└──────────────────────────────────────────────────────┘
 ```
 
-## Screenshots
+## Dashboard
 
 The dashboard shows:
-- Server connection status (green/red dots)
-- Summary counts (total, success, failed, warning, running)
-- Per-backup cards with:
-  - Status badge (color-coded)
-  - Last run time and duration
-  - Next scheduled run
-  - Data transferred and new data size
-  - Errors and warnings (highlighted)
+
+**Uptime Monitor** — grid of all monitored hosts with:
+- Green dot = reachable, Red dot = unreachable
+- Latency in milliseconds
+- Auto-refreshes every 60 seconds
+
+**Backup Status** — per-backup cards with:
+- Status badge (color-coded)
+- Last run time and duration
+- Next scheduled run
+- Data transferred and new data size
+- Errors and warnings (highlighted)
+
+**Proxmox Cluster** — expandable cards showing:
+- VM and LXC count per node
+- Per-VM/LXC backup status
+- Last backup time and errors
 
 ## Security
 
