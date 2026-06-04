@@ -32,10 +32,6 @@ truenas:
 # Uptime monitoring — hosts listed here get pinged in addition to proxmox/truenas
 health:
   hosts:
-    - name: "Windows Desktop"
-      ip: "192.168.1.30"
-    - name: "MacBook"
-      ip: "192.168.2.165"
     - name: "Junior Agent"
       ip: "192.168.1.6"
     - name: "TrueNAS Backup"
