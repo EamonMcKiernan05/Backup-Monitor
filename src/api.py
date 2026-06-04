@@ -82,10 +82,12 @@ def create_app() -> FastAPI:
     )
 
     # Add passwords to TrueNAS server configs
+    # Use host field as the key: host="truenas-main" → TRUENAS_MAIN_PASSWORD
     for srv in truenas_cfg.get("servers", []):
-        name = srv.get("name", "MAIN").replace(" ", "_").upper()
-        password_key = f"TRUENAS_{name}_PASSWORD"
+        key = srv.get("host", "MAIN").replace("-", "_").upper()
+        password_key = f"TRUENAS_{key}_PASSWORD"
         srv["password"] = os.environ.get(password_key) or srv.get("password", "")
+        logger.debug("TrueNAS %s: password_key=%s", srv["name"], password_key)
 
     truenas_collector = TrueNasCollector(
         servers=truenas_cfg.get("servers", []),
