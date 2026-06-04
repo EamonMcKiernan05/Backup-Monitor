@@ -534,8 +534,8 @@ function renderHostCard(node) {
 
   let html = `<div class="host-card">`;
 
-  // Host header
-  const hostId = 'host-' + node.host.replace(/\./g, '-');
+  // Host header — use node name for unique ID (not IP, since all nodes share entry point)
+  const hostId = 'host-' + node.name.toLowerCase().replace(/\s+/g, '-');
   html += `
     <div class="host-header" onclick="toggleHost('${hostId}')">
       <div class="host-left">
