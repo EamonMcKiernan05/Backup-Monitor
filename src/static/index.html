@@ -566,7 +566,8 @@ function computeSummary() {
   }
 
   for (const node of (dashboardData.proxmox_nodes || [])) {
-    for (const guest of { ...node.vm_status, ...node.lxc_status }.values()) {
+    const allGuests = Object.assign({}, node.vm_status || {}, node.lxc_status || {});
+    for (const guest of Object.values(allGuests)) {
       summary.total++;
       summary[guest.status] = (summary[guest.status] || 0) + 1;
     }
