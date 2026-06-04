@@ -21,8 +21,5 @@ truenas:
     - host: ${TRUENAS_MAIN_HOST|192.168.1.12}
       name: "Main"
       user: ${TRUENAS_MAIN_USER|admin}
-    - host: ${TRUENAS_BACKUP_HOST|192.168.1.108}
-      name: "Backup"
-      user: ${TRUENAS_BACKUP_USER|admin}
   api_port: 443
   verify_ssl: false
