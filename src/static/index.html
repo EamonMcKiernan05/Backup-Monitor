@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backup Monitor</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242836;
+    --border: #2d3148;
+    --text: #e4e6f0;
+    --text-dim: #8b8fa3;
+    --success: #3dd68c;
+    --success-bg: #3dd68c20;
+    --warning: #f5c542;
+    --warning-bg: #f5c54220;
+    --error: #ef5350;
+    --error-bg: #ef535020;
+    --info: #5b9dff;
+    --info-bg: #5b9dff20;
+    --running: #5b9dff;
+    --running-bg: #5b9dff20;
+    --pending: #8b8fa3;
+    --pending-bg: #8b8fa320;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 24px;
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .header .meta {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+
+  .refresh-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.15s;
+  }
+
+  .refresh-btn:hover {
+    background: var(--border);
+  }
+
+  .summary-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+
+  .summary-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .summary-card .count {
+    font-size: 1.75rem;
+    font-weight: 700;
+  }
+
+  .summary-card .label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+  }
+
+  .summary-card.success .count { color: var(--success); }
+  .summary-card.failed .count { color: var(--error); }
+  .summary-card.warning .count { color: var(--warning); }
+  .summary-card.running .count { color: var(--running); }
+  .summary-card.pending .count { color: var(--pending); }
+
+  .servers-section {
+    margin-bottom: 32px;
+  }
+
+  .section-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .server-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+  }
+
+  .server-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .server-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .server-dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .server-dot.offline { background: var(--error); box-shadow: 0 0 6px var(--error); }
+
+  .server-card .server-name {
+    font-weight: 500;
+    font-size: 0.9rem;
+  }
+
+  .server-card .server-host {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+
+  .server-card .server-error {
+    font-size: 0.75rem;
+    color: var(--error);
+    margin-top: 4px;
+  }
+
+  .backup-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 16px;
+  }
+
+  .backup-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+
+  .backup-card:hover {
+    border-color: #444;
+  }
+
+  .backup-card.status-success { border-left: 3px solid var(--success); }
+  .backup-card.status-failed { border-left: 3px solid var(--error); }
+  .backup-card.status-warning { border-left: 3px solid var(--warning); }
+  .backup-card.status-running { border-left: 3px solid var(--running); }
+  .backup-card.status-pending { border-left: 3px solid var(--pending); }
+  .backup-card.status-unknown { border-left: 3px solid var(--text-dim); }
+
+  .backup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+
+  .backup-name {
+    font-weight: 600;
+    font-size: 1rem;
+  }
+
+  .backup-type {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    background: var(--surface2);
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  .backup-source {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+
+  .backup-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .detail {
+    font-size: 0.82rem;
+  }
+
+  .detail .detail-label {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .detail .detail-value {
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  .backup-issues {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .issue {
+    font-size: 0.82rem;
+    padding: 6px 10px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+  }
+
+  .issue.error {
+    background: var(--error-bg);
+    color: var(--error);
+  }
+
+  .issue.warning {
+    background: var(--warning-bg);
+    color: var(--warning);
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+
+  .status-badge.success { background: var(--success-bg); color: var(--success); }
+  .status-badge.failed { background: var(--error-bg); color: var(--error); }
+  .status-badge.warning { background: var(--warning-bg); color: var(--warning); }
+  .status-badge.running { background: var(--running-bg); color: var(--running); }
+  .status-badge.pending { background: var(--pending-bg); color: var(--pending); }
+  .status-badge.unknown { background: var(--surface2); color: var(--text-dim); }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+  }
+
+  .status-badge.success .status-dot { background: var(--success); }
+  .status-badge.failed .status-dot { background: var(--error); }
+  .status-badge.warning .status-dot { background: var(--warning); }
+  .status-badge.running .status-dot { background: var(--running); animation: pulse 1.5s infinite; }
+  .status-badge.pending .status-dot { background: var(--pending); }
+  .status-badge.unknown .status-dot { background: var(--text-dim); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .loading {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+  }
+
+  .loading .spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--border);
+    border-top-color: var(--info);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 12px;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .no-backups {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  @media (max-width: 600px) {
+    .backup-grid {
+      grid-template-columns: 1fr;
+    }
+    .summary-bar {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    body { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div class="loading">
+      <div class="spinner"></div>
+      <div>Loading backup data...</div>
+    </div>
+  </div>
+
+<script>
+const API_BASE = '';
+const REFRESH_INTERVAL = 60000; // 60 seconds
+
+let dashboardData = null;
+let refreshTimer = null;
+
+async function fetchData() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/dashboard`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    dashboardData = await resp.json();
+    render();
+  } catch (err) {
+    renderError(err.message);
+  }
+}
+
+function render() {
+  if (!dashboardData) return;
+
+  const { backups, servers, updated_at } = dashboardData;
+  const summary = computeSummary(backups);
+  const now = new Date().toLocaleTimeString();
+  const updatedTime = new Date(updated_at * 1000).toLocaleTimeString();
+
+  let html = `
+    <div class="header">
+      <h1>Backup Monitor</h1>
+      <div class="meta">
+        <span>Updated: ${updatedTime}</span>
+        <span>Refresh: ${REFRESH_INTERVAL / 1000}s</span>
+        <button class="refresh-btn" onclick="fetchData()">↻ Refresh</button>
+      </div>
+    </div>
+  `;
+
+  // Summary cards
+  html += `<div class="summary-bar">`;
+  html += summaryCard(summary.total, 'Total', '');
+  if (summary.success > 0) html += summaryCard(summary.success, 'Success', 'success');
+  if (summary.running > 0) html += summaryCard(summary.running, 'Running', 'running');
+  if (summary.warning > 0) html += summaryCard(summary.warning, 'Warning', 'warning');
+  if (summary.failed > 0) html += summaryCard(summary.failed, 'Failed', 'failed');
+  html += `</div>`;
+
+  // Server status
+  if (servers && servers.length > 0) {
+    html += `<div class="servers-section">`;
+    html += `<div class="section-title">Connected Servers</div>`;
+    html += `<div class="server-grid">`;
+    for (const srv of servers) {
+      const dotClass = srv.connected ? 'online' : 'offline';
+      html += `
+        <div class="server-card">
+          <div class="server-dot ${dotClass}"></div>
+          <div>
+            <div class="server-name">${esc(srv.name)}</div>
+            <div class="server-host">${esc(srv.host)}</div>
+            ${srv.connection_error ? `<div class="server-error">${esc(srv.connection_error)}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+    html += `</div></div>`;
+  }
+
+  // Backup cards
+  html += `<div class="section-title">Backup Jobs</div>`;
+
+  if (!backups || backups.length === 0) {
+    html += `<div class="no-backups">No backup data loaded. Check server connections and credentials.</div>`;
+  } else {
+    html += `<div class="backup-grid">`;
+    for (const backup of backups) {
+      html += renderBackupCard(backup);
+    }
+    html += `</div>`;
+  }
+
+  document.getElementById('app').innerHTML = html;
+}
+
+function summaryCard(count, label, cls) {
+  return `
+    <div class="summary-card ${cls}">
+      <div class="count">${count}</div>
+      <div class="label">${label}</div>
+    </div>
+  `;
+}
+
+function renderBackupCard(b) {
+  const statusCls = `status-${b.status}`;
+  const badgeCls = b.status;
+
+  let html = `
+    <div class="backup-card ${statusCls}">
+      <div class="backup-header">
+        <div>
+          <div class="backup-name">${esc(b.name)}</div>
+          <div class="backup-source">${esc(b.source)}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="backup-type">${esc(b.backup_type)}</span>
+          <span class="status-badge ${badgeCls}">
+            <span class="status-dot"></span>
+            ${esc(b.status)}
+          </span>
+        </div>
+      </div>
+
+      <div class="backup-details">
+        <div class="detail">
+          <div class="detail-label">Status</div>
+          <div class="detail-value">${esc(b.status_message || '—')}</div>
+        </div>
+        <div class="detail">
+          <div class="detail-label">Last Run</div>
+          <div class="detail-value">${esc(b.time_since_last || '—')}</div>
+        </div>
+        <div class="detail">
+          <div class="detail-label">Duration</div>
+          <div class="detail-value">${formatDuration(b.last_duration)}</div>
+        </div>
+        <div class="detail">
+          <div class="detail-label">Next Run</div>
+          <div class="detail-value">${esc(b.time_until_next || '—')}</div>
+        </div>
+        <div class="detail">
+          <div class="detail-label">Data Transferred</div>
+          <div class="detail-value">${esc(b.data_transferred_human || '—')}</div>
+        </div>
+        <div class="detail">
+          <div class="detail-label">New Data</div>
+          <div class="detail-value">${esc(b.new_data_human || '—')}</div>
+        </div>
+      </div>
+  `;
+
+  // Errors and warnings
+  if (b.errors && b.errors.length > 0) {
+    html += `<div class="backup-issues">`;
+    for (const err of b.errors) {
+      html += `<div class="issue error">⚠ ${esc(err)}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (b.warnings && b.warnings.length > 0) {
+    html += `<div class="backup-issues">`;
+    for (const warn of b.warnings) {
+      html += `<div class="issue warning">⚡ ${esc(warn)}</div>`;
+    }
+    html += `</div>`;
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function computeSummary(backups) {
+  const summary = { total: backups.length };
+  for (const b of backups) {
+    summary[b.status] = (summary[b.status] || 0) + 1;
+  }
+  return summary;
+}
+
+function formatDuration(seconds) {
+  if (seconds == null) return '—';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
+  return `${(seconds / 3600).toFixed(1)}h`;
+}
+
+function esc(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function renderError(msg) {
+  document.getElementById('app').innerHTML = `
+    <div class="header">
+      <h1>Backup Monitor</h1>
+    </div>
+    <div class="no-backups" style="color: var(--error);">
+      Failed to load data: ${esc(msg)}<br>
+      <button class="refresh-btn" onclick="fetchData()" style="margin-top:12px;">↻ Retry</button>
+    </div>
+  `;
+}
+
+// Initial load and periodic refresh
+fetchData();
+refreshTimer = setInterval(fetchData, REFRESH_INTERVAL);
+</script>
+</body>
+</html>
