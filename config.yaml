@@ -8,10 +8,13 @@ proxmox:
   nodes:
     - host: proxmox-1
       name: "Proxmox 7"
+      ip: ${PROXMOX_NODE_1|192.168.1.7}
     - host: proxmox-2
       name: "Proxmox 8"
+      ip: ${PROXMOX_NODE_2|192.168.1.8}
     - host: proxmox-3
       name: "Proxmox 9"
+      ip: ${PROXMOX_NODE_3|192.168.1.9}
   entry_point: ${PROXMOX_ENTRY|192.168.1.7}
   user: ${PROXMOX_USER|root@pam}
   api_port: 8006
@@ -19,8 +22,9 @@ proxmox:
 
 truenas:
   servers:
-    - host: ${TRUENAS_MAIN_HOST|192.168.1.12}
-      name: "Main"
+    - host: truenas-main
+      name: "TrueNAS Main"
+      ip: ${TRUENAS_MAIN_HOST|192.168.1.12}
       user: ${TRUENAS_MAIN_USER|admin}
   api_port: 443
   verify_ssl: false

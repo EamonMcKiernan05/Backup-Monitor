@@ -98,7 +98,7 @@ class TrueNasCollector:
         backups: list[BackupInfo] = []
 
         for srv_cfg in self.servers:
-            host = srv_cfg["host"]
+            host = srv_cfg.get("ip") or srv_cfg["host"]
             name = srv_cfg.get("name", host)
             user = srv_cfg.get("user", "admin")
             password = srv_cfg.get("password", "")

@@ -64,7 +64,9 @@ class ProxmoxCollector:
         verify_ssl: bool = False,
         entry_point: str = "",
     ):
+        # Build lookup: node_name -> {name, ip}
         self.node_labels = {n["host"]: n.get("name", n["host"]) for n in nodes}
+        self.node_ips = {n["host"]: n.get("ip", n["host"]) for n in nodes}
         self.entry_point = entry_point or (nodes[0]["host"] if nodes else "127.0.0.1")
         self.user = user
         self.password = password
@@ -122,8 +124,9 @@ class ProxmoxCollector:
         for node_info in node_list:
             node_name = node_info.get("node", "")
             label = self.node_labels.get(node_name, node_name)
+            node_ip = self.node_ips.get(node_name, host)
 
-            status = ProxmoxNodeStatus(name=label, host=host, connected=True)
+            status = ProxmoxNodeStatus(name=label, host=node_ip, connected=True)
 
             # Get QEMU VMs on this node
             qemu_data = await self._api_get(
